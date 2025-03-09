@@ -8,17 +8,17 @@
 #include <poll.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-	#include <unordered_map>
+#include <unordered_map>
 #include <chrono>
+#include <thread>
 
 
 #include "ResponseCache.hpp"
 #include "../liblogger/liblogger.hpp"
 
-constexpr int POLL_TIMEOUT = 5000;     // Poll wait timeout (milliseconds)
-constexpr int CLIENT_TIMEOUT = 30000;  // Client connection idle timeout (milliseconds)
+constexpr int CLIENT_TIMEOUT_MS = 30000;  // Client connection idle timeout (milliseconds)
 
-constexpr int MAX_REQUESTS_PER_WINDOW = 10; // Allow 5 requests
+constexpr int MAX_REQUESTS_PER_SECOND = 50; // Allow 5 requests
 constexpr int WINDOW_DURATION_S = 1;    // In 1 seconds
 
 namespace HTTP_Server
@@ -31,7 +31,6 @@ namespace HTTP_Server
 	};
 
 std::unordered_map<std::string, RateLimitInfo> rate_limits;
-const int MAX_REQUESTS_PER_SECOND = 5;  // Limit to 5 requests per secon
 
 	struct ClientConnection
 	{
@@ -76,10 +75,7 @@ const int MAX_REQUESTS_PER_SECOND = 5;  // Limit to 5 requests per secon
 		std::vector<struct pollfd> poll_fds;	 // For handling poll-based connections
 		//lib_logger::Logger Log_object;
 
-		void handle_new_connection();			   // Accept new clients
-		void handle_client_request(int client_fd, ResponseCache &response_cache); // Process client requests
-		void check_for_timeouts();				   // Close inactive connections
-		void remove_client(int client_fd);		   // Helper to clean up closed connections
+		void handle_client_request(int client_fd, ResponseCache &response_cache, SSL *ssl); // Process client requests
 		void configure_context();
 	};
 

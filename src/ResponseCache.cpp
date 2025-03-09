@@ -1,5 +1,6 @@
 #include "ResponseCache.hpp"
 #include <iostream>
+#include <memory>
 
 #include "../liblogger/liblogger.hpp"
 
@@ -30,7 +31,7 @@ namespace HTTP_Server
 			auto now = std::chrono::steady_clock::now();
 			if (now - it->second.timestamp < it->second.max_age)
 			{
-				return it->second; // Return valid cache entry
+				return std::make_optional<CacheEntry>(std::move(it->second)); // Return valid cache entry
 			}
 			else
 			{
@@ -41,12 +42,13 @@ namespace HTTP_Server
 	}
 
 	// Store a new cache entry
-	void ResponseCache::put(const std::string &key, const std::string &body, const HTTPHeaders &headers, const std::string &Etag)
+	void ResponseCache::put(const std::string &key, std::unique_ptr<std::string> &&body, const HTTPHeaders &headers, const std::string &Etag)
 	{
 		lib_logger::LOG(lib_logger::LogLevel::TRACE,"");
 		std::lock_guard<std::mutex> lock(mutex);
 		CacheEntry entry;
-		entry.body = body;
+		
+		entry.body = std::move(body);
 		entry.cached_Etag = Etag;
 
 		// Store only selected headers
@@ -72,19 +74,19 @@ namespace HTTP_Server
 		}
 
 		entry.timestamp = std::chrono::steady_clock::now();
-		cache[key] = entry; // Store in cache
+		cache.insert_or_assign(key, std::move(entry)); // Store in cache
 	}
 
 	// Update an existing cache entry
-	void ResponseCache::update(const std::string &key, const std::string &body, const HTTPHeaders &headers, const std::string &Etag)
+	/*void ResponseCache::update(const std::string &key, const std::string &body, const HTTPHeaders &headers, const std::string &Etag)
 	{
 		lib_logger::LOG(lib_logger::LogLevel::TRACE,"");
 		std::lock_guard<std::mutex> lock(mutex);
 		if (cache.find(key) != cache.end())
 		{
-			put(key, body, headers, Etag); // Reuse the put method to update
+			put(key, std::move(body), headers, Etag); // Reuse the put method to update
 		}
-	}
+	}*/
 
 	// Generate cache-related headers for response
 	void ResponseCache::generate_cache_headers(HTTPHeaders &resp_headers, const CacheEntry &entry)
@@ -112,7 +114,7 @@ namespace HTTP_Server
 	}
 
 	// Update an existing cache entry by appending to the body and headers
-	void ResponseCache::update_and_append(const std::string &key, const std::string &additional_body, const HTTPHeaders &additional_headers, const std::string &Etag)
+	/*void ResponseCache::update_and_append(const std::string &key, const std::string &additional_body, const HTTPHeaders &additional_headers, const std::string &Etag)
 	{
 		lib_logger::LOG(lib_logger::LogLevel::TRACE,"");
 		std::lock_guard<std::mutex> lock(mutex);
@@ -120,7 +122,7 @@ namespace HTTP_Server
 		if (it != cache.end())
 		{
 			// Append to the body
-			it->second.body += additional_body;
+			*it->second.body += additional_body;
 
 			// Add or update the selected headers based on the new headers
 			for (const auto &headerName : additional_headers.get_all_header_pairs())
@@ -140,5 +142,5 @@ namespace HTTP_Server
 			// If no existing entry, create a new one
 			put(key, additional_body, additional_headers, Etag);
 		}
-	}
+	}*/
 }

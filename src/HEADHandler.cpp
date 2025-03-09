@@ -9,7 +9,7 @@
 #include <openssl/sha.h> // Requires OpenSSL for hashing
 #include <sys/stat.h>
 #include "utils.hpp"
-
+#include <memory>
 
 #include "../liblogger/liblogger.hpp"
 
@@ -85,11 +85,11 @@ namespace HTTP_Server
 
 			lib_logger::LOG(lib_logger::LogLevel::DEBUG,"Serving from cache!");
 			is_served_from_cache = true;
-			cache_entry = std::make_unique<CacheEntry>(cached_entry.value());
+			cache_entry = std::make_unique<CacheEntry>(std::move(cached_entry.value()));
 
 			// resp_info.resp_code = HTTP_ERR_NOT_MODIFIED;
 			// resp_info.status_message = get_srv_error_description((HTTP_error_code)resp_info.resp_code);
-			resp_info.resp_final_body = cached_entry->body;
+			resp_info.resp_final_body = std::move(cached_entry->body);
 			return APP_ERR_OK; // Successfully served from cache
 		}
 
@@ -111,13 +111,13 @@ namespace HTTP_Server
 			lib_logger::LOG(lib_logger::LogLevel::WARNING,"404 NOT FOUND");
 		}
 
-		resp_headers.add_header("Content-Length", std::to_string(resp_info.resp_final_body.length()));
+		resp_headers.add_header("Content-Length", std::to_string(resp_info.resp_final_body->length()));
 
 		// Decide if the response should be cached based on headers or other conditions
-		if (resp_info.resp_final_body != "" && should_cache_response(resp_headers))
+		if (!resp_info.resp_final_body->empty() && should_cache_response(resp_headers))
 		{
 			// Call put to store in the cache
-			response_cache.put(cache_key, resp_info.resp_final_body, resp_headers, currentETag);
+			response_cache.put(cache_key, std::move(resp_info.resp_final_body), resp_headers, currentETag);
 		}
 
 		return APP_ERR_OK;

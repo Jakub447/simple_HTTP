@@ -2,6 +2,7 @@
 #define HTTP_connection_info_H
 
 #include <string>
+#include <memory>
 
 namespace HTTP_Server
 {
@@ -34,9 +35,11 @@ namespace HTTP_Server
 		int resp_code;
 		int prot_ver;
 		std::string status_message;
-		std::string resp_final_header;
-		std::string resp_final_body;
-		std::string resp_full_message;
+		std::unique_ptr<std::string> resp_final_header;
+		std::unique_ptr<std::string> resp_final_body;
+		std::unique_ptr<std::string> resp_full_message;
+		bool is_body_large;
+		std::string file_name;
 
 		// Constructor
 		HTTP_request_response() = default;
