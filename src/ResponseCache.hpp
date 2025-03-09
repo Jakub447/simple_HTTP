@@ -6,6 +6,7 @@
 #include <mutex>
 #include <chrono>
 #include <optional>
+#include <memory>
 #include "HttpHeaders.hpp"
 
 namespace HTTP_Server
@@ -13,11 +14,46 @@ namespace HTTP_Server
 	// Cache entry structure
 	struct CacheEntry
 	{
-		std::string body;
+		std::unique_ptr<std::string> body;
 		HTTPHeaders selected_headers;
 		std::chrono::time_point<std::chrono::steady_clock> timestamp;
 		std::string cached_Etag;
 		std::chrono::seconds max_age; // Duration until the cache entry is considered stale
+
+		// Default constructor (sets body to nullptr)
+		CacheEntry()
+			: body(nullptr), max_age(0) // Initialize to default values
+		{
+		}
+
+		// Move constructor
+		CacheEntry(CacheEntry &&other) noexcept
+			: body(std::move(other.body)),
+			  selected_headers(std::move(other.selected_headers)),
+			  timestamp(other.timestamp),
+			  cached_Etag(std::move(other.cached_Etag)),
+			  max_age(other.max_age)
+		{
+			// No need to move the unique_ptr as we are just moving data
+		}
+
+		// Move assignment operator
+		CacheEntry &operator=(CacheEntry &&other) noexcept
+		{
+			if (this != &other)
+			{
+				body = std::move(other.body);
+				selected_headers = std::move(other.selected_headers);
+				timestamp = other.timestamp;
+				cached_Etag = std::move(other.cached_Etag);
+				max_age = other.max_age;
+			}
+			return *this;
+		}
+
+		// Disable copy constructor (explicitly delete it if not automatically deleted)
+		CacheEntry(const CacheEntry &) = delete;
+		CacheEntry &operator=(const CacheEntry &) = delete;
 	};
 
 	class ResponseCache
@@ -34,13 +70,13 @@ namespace HTTP_Server
 		std::optional<CacheEntry> get(const std::string &key);
 
 		// Store a new entry in the cache
-		void put(const std::string &key, const std::string &body, const HTTPHeaders &headers, const std::string &Etag);
+		void put(const std::string &key, std::unique_ptr<std::string> &&body, const HTTPHeaders &headers, const std::string &Etag);
 
 		// Update an existing cache entry
-		void update(const std::string &key, const std::string &body, const HTTPHeaders &headers, const std::string &Etag);
+		//void update(const std::string &key, const std::string &body, const HTTPHeaders &headers, const std::string &Etag);
 
 		// Update an existing cache entry by appending to the body and headers
-		void update_and_append(const std::string &key, const std::string &additional_body, const HTTPHeaders &additional_headers, const std::string &Etag);
+		//void update_and_append(const std::string &key, const std::string &additional_body, const HTTPHeaders &additional_headers, const std::string &Etag);
 
 		// Generate appropriate cache-related response headers
 		void generate_cache_headers(HTTPHeaders &resp_headers, const CacheEntry &entry);

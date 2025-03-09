@@ -53,12 +53,16 @@ namespace HTTP_Server
 
 	int ResponseBuilder::prepare_status_line()
 	{
-		lib_logger::LOG(lib_logger::LogLevel::TRACE,"");
+		lib_logger::LOG(lib_logger::LogLevel::TRACE, "");
 		std::string protocol_string = prepare_protocol_version(resp_info.prot_ver);
 		std::string status_code = std::to_string(resp_info.resp_code);
 		std::string status_message = resp_info.status_message;
 
-		resp_info.resp_final_header = protocol_string + " " + status_code + " " + status_message + "\r\n";
+		if (!resp_info.resp_final_header)
+		{
+			resp_info.resp_final_header = std::make_unique<std::string>();
+		}
+		*resp_info.resp_final_header = protocol_string + " " + status_code + " " + status_message + "\r\n";
 		return APP_ERR_OK;
 	}
 
@@ -220,9 +224,9 @@ namespace HTTP_Server
 		resp_headers.add_header("X-Frame-Options", "DENY");
 		resp_headers.add_header("Content-Security-Policy", "default-src 'self'");
 
-		resp_info.resp_final_header += resp_headers.Get_all_headers();
+		*resp_info.resp_final_header += resp_headers.Get_all_headers();
 
-		resp_info.resp_final_header += "\r\n";
+		*resp_info.resp_final_header += "\r\n";
 
 		return APP_ERR_OK;
 	}
@@ -230,14 +234,20 @@ namespace HTTP_Server
 	int ResponseBuilder::prepare_full_message()
 	{
 		lib_logger::LOG(lib_logger::LogLevel::TRACE,"");
-		resp_info.resp_full_message = resp_info.resp_final_header + resp_info.resp_final_body;
+
+		if (!resp_info.resp_full_message)
+		{
+			resp_info.resp_full_message = std::make_unique<std::string>();
+		}
+
+		*resp_info.resp_full_message = *resp_info.resp_final_header + *resp_info.resp_final_body;
 		return APP_ERR_OK;
 	}
 
-	std::string ResponseBuilder::get_full_message()
+	std::unique_ptr<std::string> ResponseBuilder::get_full_message()
 	{
 		lib_logger::LOG(lib_logger::LogLevel::TRACE,"");
-		return resp_info.resp_full_message;
+		return std::move(resp_info.resp_full_message);
 	}
 
 	int ResponseBuilder::update_resp_info(int new_resp_code, std::string new_status_message)

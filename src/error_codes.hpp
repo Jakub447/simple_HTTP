@@ -39,7 +39,8 @@ namespace HTTP_Server
 		APP_ERR_NO_DIR = -6,		// Unable to create directories for file
 		APP_ERR_NO_FILE_OPEN = -7,	// unable oto pen file error
 		APP_ERR_FILE_WRITE = -8,	// file write error
-		APP_ERR_NO_REQ_HANDLER = -9 // no handler error
+		APP_ERR_NO_REQ_HANDLER = -9, // no handler error
+		APP_ERR_NULL_PTR = -10 		// null pointer
 	};
 
 	// Error descriptions mapped to server error codes

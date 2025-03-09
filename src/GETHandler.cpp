@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <openssl/sha.h> // Requires OpenSSL for hashing
 #include <sys/stat.h>
+#include <memory>
 #include "utils.hpp"
 
 
@@ -33,30 +34,47 @@ namespace HTTP_Server
 		}
 	}
 
-	static std::string read_file_to_string(const std::string &filename, bool is_binary)
+	static std::streamsize read_file_to_string(const std::string &filename, bool is_binary, bool &is_body_large, std::unique_ptr<std::string> &content)
 	{
 		std::ifstream file(filename, to_open_mode(is_binary));
 		if (!file)
 		{
 			lib_logger::LOG(lib_logger::LogLevel::ERROR, "Unable to open file: %s", filename.c_str());
-			return "";
+			return 0;
 		}
 
-		const size_t buffer_size = 8192; // 8KB buffer
-		std::vector<char> buffer(buffer_size);
-		std::string content;
+		file.seekg(0, std::ios::end);
+		std::streamsize file_size = file.tellg();
+		file.seekg(0, std::ios::beg);
 
-		while (file.read(buffer.data(), buffer.size()))
+		// Define a threshold for what is considered a "large" file
+    	const std::streamsize MAX_FILE_SIZE_THRESHOLD = 104857600; // For example, 100MB
+
+		is_body_large = (file_size > MAX_FILE_SIZE_THRESHOLD);
+
+		if(is_body_large)
 		{
-			content.append(buffer.data(), file.gcount());
+			return file_size;
+		}
+
+		content->clear();
+
+		content->reserve(file_size);
+
+		constexpr size_t buffer_size = 8192; // 8KB buffer
+		std::unique_ptr<char []> buffer = std::make_unique<char []>(buffer_size);
+
+
+		while (file.read(buffer.get(), buffer_size))
+		{
+			content->append(buffer.get(), file.gcount());
 		}
 		if (file.gcount() > 0)
 		{
-			content.append(buffer.data(), file.gcount());
+			content->append(buffer.get(), file.gcount());
 		}
 
-		file.close();
-		return content;
+		return file_size;
 	}
 
 	static std::string generate_ETag(const std::string &filename)
@@ -113,10 +131,15 @@ namespace HTTP_Server
 		resp_info.status_message = get_srv_error_description((HTTP_error_code)resp_info.resp_code);
 
 		std::string filename = concatenate_path(root_dir, req_info.URI);
-		lib_logger::LOG(lib_logger::LogLevel::DEBUG,"filename after fun: %s", filename.c_str());
+		resp_info.file_name = filename;
 
 		std::string currentETag = generate_ETag(filename);
 		std::string cache_key = req_info.URI; // Use the URI as the cache key
+
+		if (!resp_info.resp_final_body)
+		{
+			resp_info.resp_final_body = std::make_unique<std::string>();
+		}
 
 		// Check cache first
 		auto cached_entry = response_cache.get(cache_key);
@@ -125,11 +148,11 @@ namespace HTTP_Server
 
 			lib_logger::LOG(lib_logger::LogLevel::DEBUG,"Serving from cache!");
 			is_served_from_cache = true;
-			cache_entry = std::make_unique<CacheEntry>(cached_entry.value());
+			cache_entry = std::make_unique<CacheEntry>(std::move(cached_entry.value()));
 
 			// resp_info.resp_code = HTTP_ERR_NOT_MODIFIED;
 			// resp_info.status_message = get_srv_error_description((HTTP_error_code)resp_info.resp_code);
-			resp_info.resp_final_body = cached_entry->body;
+			resp_info.resp_final_body = std::move(cache_entry->body);
 			return APP_ERR_OK; // Successfully served from cache
 		}
 
@@ -141,9 +164,9 @@ namespace HTTP_Server
 		MimeTypeRecognizer recognizer;
 		MimeTypeInfo file_mime_type_info = recognizer.get_mime_type_Info(filename);
 		resp_headers.add_header("Content-Type", file_mime_type_info.mimeType);
-		resp_info.resp_final_body = read_file_to_string(filename, file_mime_type_info.is_binary);
+		std::streamsize file_size = read_file_to_string(filename, file_mime_type_info.is_binary,resp_info.is_body_large,resp_info.resp_final_body);
 
-		if(resp_info.resp_final_body == "")
+		if( 0 == file_size)
 		{
 			resp_info.resp_code = HTTP_ERR_NOT_FOUND;
 			resp_info.status_message = get_srv_error_description((HTTP_error_code)resp_info.resp_code);
@@ -151,13 +174,13 @@ namespace HTTP_Server
 			lib_logger::LOG(lib_logger::LogLevel::WARNING,"404 NOT FOUND");
 		}
 
-		resp_headers.add_header("Content-Length", std::to_string(resp_info.resp_final_body.length()));
+		resp_headers.add_header("Content-Length", std::to_string(file_size));
 
-		// Decide if the response should be cached based on headers or other conditions
-		if (resp_info.resp_final_body != "" && should_cache_response(resp_headers))
+		// Decide if the response should be cached based on headers or other conditions, dont store anything big, lol
+		if (!resp_info.resp_final_body->empty() && (should_cache_response(resp_headers) && (false == resp_info.is_body_large)))
 		{
 			// Call put to store in the cache
-			response_cache.put(cache_key, resp_info.resp_final_body, resp_headers, currentETag);
+			response_cache.put(cache_key, std::make_unique<std::string>(*resp_info.resp_final_body), resp_headers, currentETag);
 		}
 
 		return APP_ERR_OK;

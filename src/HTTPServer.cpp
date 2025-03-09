@@ -102,16 +102,47 @@ namespace HTTP_Server
 		return false;
 	}
 
+	static void stream_file_to_ssl(const std::string &filename, SSL *ssl)
+	{
+		lib_logger::LOG(lib_logger::LogLevel::TRACE, "");
+		std::ifstream file(filename, std::ios::binary);
+		if (!file)
+		{
+			lib_logger::LOG(lib_logger::LogLevel::ERROR, "Failed to open file for streaming: %s", filename.c_str());
+			return;
+		}
+
+		constexpr size_t buffer_size = 8192; // 8KB chunks
+		char buffer[buffer_size];
+
+		while (file.read(buffer, buffer_size))
+		{
+			if (SSL_write(ssl, buffer, file.gcount()) <= 0)
+			{
+				lib_logger::LOG(lib_logger::LogLevel::ERROR, "Error streaming file to client.");
+				break;
+			}
+		}
+
+		// Send remaining bytes if any
+		if (file.gcount() > 0)
+		{
+			SSL_write(ssl, buffer, file.gcount());
+		}
+
+		lib_logger::LOG(lib_logger::LogLevel::INFO, "File successfully streamed: %s", filename.c_str());
+	}
+
 	int HTTPServer::server_init()
 	{
 		lib_logger::LOG(lib_logger::LogLevel::TRACE, "");
 
-		lib_logger::Logger::Instance().Set_log_level(lib_logger::LogLevel::DEBUG);
+		lib_logger::Logger::Instance().Set_log_level(lib_logger::LogLevel::TRACE);
 		// lib_logger::Logger::Instance().Set_max_file_size(1024 * 1024);
 		// lib_logger::Logger::Instance().Set_output_file("log-1.txt");
 
 		std::string test_string = "world";
-		lib_logger::LOG(lib_logger::LogLevel::TRACE, "Hello, %s! This is a test.", test_string.c_str());
+		lib_logger::LOG(lib_logger::LogLevel::DEBUG, "Hello, %s! This is a test.", test_string.c_str());
 
 		lib_logger::LOG(lib_logger::LogLevel::TRACE, "this is a test");
 		lib_logger::LOG(lib_logger::LogLevel::DEBUG, "this is a test");
@@ -287,20 +318,35 @@ lib_logger::LOG(lib_logger::LogLevel::ERROR, "after rate limit ");
 				}
 
 				// Send the response headers
-				if (SSL_write(ssl, resp_builder.get_headers().c_str(), resp_builder.get_headers().size()) <= 0)
+				auto& headers = resp_builder.get_headers();
+				if (!headers) {
+   					lib_logger::LOG(lib_logger::LogLevel::ERROR, "get_headers() returned nullptr!");
+
+    				return;
+				}
+
+				if (SSL_write(ssl, headers->c_str(), headers->size()) <= 0)
 				{
 					lib_logger::LOG(lib_logger::LogLevel::ERROR, "Error sending headers");
 					break;
 				}
 
+				// Send the response headers
+				auto& body = resp_builder.get_body();
+				if (!body) {
+   					lib_logger::LOG(lib_logger::LogLevel::ERROR, "get_body() returned nullptr!");
+
+    				return;
+				}
+
 				// Send the response body (if any)
-				if (!resp_builder.get_body().empty())
+				if (!resp_builder.is_body_large())
 				{
 					ssize_t totalSent = 0;
-					while (totalSent < resp_builder.get_body().size())
+					while (totalSent < body->size())
 					{
-						int bytesSent = SSL_write(ssl, resp_builder.get_body().c_str() + totalSent,
-												  resp_builder.get_body().size() - totalSent);
+						int bytesSent = SSL_write(ssl, body->c_str() + totalSent,
+												  body->size() - totalSent);
 						if (bytesSent <= 0)
 						{
 							lib_logger::LOG(lib_logger::LogLevel::ERROR, "Error sending body");
@@ -309,6 +355,8 @@ lib_logger::LOG(lib_logger::LogLevel::ERROR, "after rate limit ");
 						}
 						totalSent += bytesSent;
 					}
+				} else{
+					stream_file_to_ssl(resp_builder.get_file_name(), ssl);
 				}
 
 				// After processing, the loop “restarts” so any new data resets the timeout.
